@@ -6,26 +6,45 @@ import { sql } from '@vercel/postgres';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+
 const FormSchema = z.object({
   id: z.string(),
-  customerId: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(['pending', 'paid']),
+  customerId: z.string({
+    invalid_type_error: 'Please select a customer.',
+  }),
+  amount: z.coerce.number().gt(0, 'Please enter an amount greater than $0'),
+  status: z.enum(['pending', 'paid'], {
+    invalid_type_error: 'Please select an invoice status.',
+  }),
   date: z.string(),
 });
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 
-export const createInvoice = async (formData: FormData) => {
-  const { customerId, amount, status } = CreateInvoice.parse({
+export const createInvoice = async (prevState: State, formData: FormData) => {
+  const validatedData = CreateInvoice.safeParse({
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
     status: formData.get('status'),
   });
 
-  // const rfd = Object.fromEntries(formData.entries());
+  if (!validatedData.success) {
+    return {
+      errors: validatedData.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Create Invoice.',
+    };
+  }
 
+  const { customerId, amount, status } = validatedData.data;
   const amountInCents = amount * 100;
   const date = new Date().toISOString().split('T')[0];
 
@@ -44,13 +63,25 @@ export const createInvoice = async (formData: FormData) => {
   redirect('/dashboard/invoices');
 };
 
-export const updateInvoice = async (id: string, formData: FormData) => {
-  const { customerId, amount, status } = UpdateInvoice.parse({
+export const updateInvoice = async (
+  id: string,
+  prevState: State,
+  formData: FormData,
+) => {
+  const validatedData = UpdateInvoice.safeParse({
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
     status: formData.get('status'),
   });
 
+  if (!validatedData.success) {
+    return {
+      errors: validatedData.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Edit Invoice.',
+    };
+  }
+
+  const { customerId, amount, status } = validatedData.data;
   const amountInCents = amount * 100;
 
   try {
